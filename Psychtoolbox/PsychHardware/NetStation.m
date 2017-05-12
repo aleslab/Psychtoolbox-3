@@ -219,8 +219,8 @@ else
             else
                 if netstationAvailable
                     %Tell netstation to get ready for synchronization.
-                    send(NSIDENTIFIER,'A');
-                    receive(NSIDENTIFIER,1);
+                    %send(NSIDENTIFIER,'A');
+                    %receive(NSIDENTIFIER,1);
                     %get the timebase from the netstation.
                     send(NSIDENTIFIER,'S');
                     rep = receive(NSIDENTIFIER,1);
@@ -236,7 +236,7 @@ else
                 % Get current PTB GetSecs time and NTP adjusted UTC time.
                 % ptbRefTime on Linux/OSX/Unix is time in seconds since 1.1.1970, NTP synced, microseconds resolution.
                 % ptbRefTime on Windows is time in seconds since 1.1.1601, NTP synced, milliseconds resolution.
-                [ptbTimestamp, ptbRefTime] = GetSecs('AllClocks');
+                [ptbTimestamp, ptbRefTime] = GetSecs(1);
 
                 %For debugging let's print what EGI gave us.
                 rawDataString = dec2hex(ntpTimestamp);
@@ -369,7 +369,7 @@ else
                     % then by subtracting SYNCHEPOCH, translate that into time delta since EGI's NTP baseline
                     % time. This would be NTP drift corrected for synchronized machines, so we don't accumulate
                     % timestamp error, even for long experiment runtimes:
-                    [ptbGetSecsTime, ptbRefTime] = GetSecs('AllClocks');
+                    [ptbGetSecsTime, ptbRefTime] = GetSecs(1);
                     if isempty(start)
                         % Can skip translation and use current ptbRefTime directly,
                         % just get delta to EGI baseline. This is a tad more accurate:
