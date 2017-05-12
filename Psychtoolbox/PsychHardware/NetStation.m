@@ -223,11 +223,11 @@ else
                     %receive(NSIDENTIFIER,1);
                     %get the timebase from the netstation.
                     send(NSIDENTIFIER,'S');
-                    rep = receive(NSIDENTIFIER,1);
-                    if char(rep) ~= 'Z'
-                        status = 4;
-                        warning('NTP query reports failure!');
-                    end
+%                     rep = receive(NSIDENTIFIER,1);
+%                     if char(rep) ~= 'Z'
+%                         status = 4;
+%                         warning('NTP query reports failure!');
+%                     end
                 end
 
                 % Get current time in EGI's NTP adjusted timebase (seconds since 1.1.1900):
