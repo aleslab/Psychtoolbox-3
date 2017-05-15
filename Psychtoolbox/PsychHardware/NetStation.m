@@ -102,7 +102,7 @@ DefaultSynchLimit = 2.5;  % The accuracy of synchronization in milliseconds
 
 %Switch for implementing debug code.
 %Set to true if no netstation is connected.
-noNetstationAvailable = false;
+noNetstationAvailable = true;
 netstationAvailable   = ~noNetstationAvailable; %Cause double negatives annoy me.
 
 %Debug code
@@ -217,12 +217,33 @@ else
             if isempty(NSIDENTIFIER) || (NSIDENTIFIER < 0)
                 status = 1;
             else
+                
+                % Get current PTB GetSecs time and NTP adjusted UTC time.
+                % ptbRefTime on Linux/OSX/Unix is time in seconds since 1.1.1970, NTP synced, microseconds resolution.
+                % ptbRefTime on Windows is time in seconds since 1.1.1601, NTP synced, milliseconds resolution.
+                [ptbTimestamp, ptbRefTime] = GetSecs(1);
+
                 if netstationAvailable
                     %Tell netstation to get ready for synchronization.
-                    %send(NSIDENTIFIER,'A');
-                    %receive(NSIDENTIFIER,1);
+                    send(NSIDENTIFIER,'A');
+                    receive(NSIDENTIFIER,1);
                     %get the timebase from the netstation.
+                    %'S' also requires sending current timebase to the
+                    %netstation.
                     send(NSIDENTIFIER,'S');
+                    %From the EGI reference client The ntp sync command
+                    %excepts an 8 byte timestamp after the 'S'
+                    ptbNtpTimestamp = ptbTimeToNtpTimestamp(ptbRefTime);
+                    %Don't understand this but for some reason the EGI
+                    %reference code sends the seconds 4 bytes first.
+                    ptbNtpTimestamp = [ptbNtpTimestamp(2) ptbNtpTimestamp(1)];
+                    pnet(con,'write', ptbNtpTimestamp);
+                    
+                    
+                    rawDataString = dec2hex(ptbNtpTimestamp);
+                    disp('Raw time stamp bytes being sent to EGI:')
+                    disp(rawDataString)
+                    
 %                     rep = receive(NSIDENTIFIER,1);
 %                     if char(rep) ~= 'Z'
 %                         status = 4;
@@ -233,11 +254,7 @@ else
                 % Get current time in EGI's NTP adjusted timebase (seconds since 1.1.1900):
                 [ntpTimestamp] = receiveNtpTimestamp(NSIDENTIFIER);
 
-                % Get current PTB GetSecs time and NTP adjusted UTC time.
-                % ptbRefTime on Linux/OSX/Unix is time in seconds since 1.1.1970, NTP synced, microseconds resolution.
-                % ptbRefTime on Windows is time in seconds since 1.1.1601, NTP synced, milliseconds resolution.
-                [ptbTimestamp, ptbRefTime] = GetSecs(1);
-
+       
                 %For debugging let's print what EGI gave us.
                 rawDataString = dec2hex(ntpTimestamp);
                 disp('Raw NETSTATION NTP timestamp bytes:')
@@ -471,6 +488,29 @@ function ntpTimestamp=receiveNtpTimestamp(con)
             error('NTP timestamp receive timed out!');
         end
     end
+end
+
+
+function ntpTimestamp = ptbTimeToNtpTimestamp(ptbTime)
+        
+        
+        % Now we need to convert the ntp sync time to the
+        % equivalent timebase used by PTB. On Linux and OSX the
+        % epoch is 1970, on Windows the epoch is the year 1601.
+        % So first we're going to convert the netstation epoch
+        % to these:
+        if IsWin
+            secondsFromNtpEpochToSystemEpoch = -9435484800;
+        else
+            secondsFromNtpEpochToSystemEpoch = 2208988800;
+        end
+        
+        %Converst first uint 32  to seconds from 1900
+        ntpTimestamp(1) = uint32(floor(ptbTime) + secondsFromNtpEpochToSystemEpoch);
+        %Convert the fractional seconds to ntp uint32 form. 
+        ntpTimestamp(2) = uint32( 2^32*(ptbTime - floor(ptbTime)));
+        
+        
 end
 
 function errstr=nserr(status)
