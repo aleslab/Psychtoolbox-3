@@ -106,8 +106,9 @@ noNetstationAvailable = false;
 netstationAvailable   = ~noNetstationAvailable; %Cause double negatives annoy me.
 
 %This variable is used to test the endianness. 
-ntpStampSwapMode = 'native';
+%ntpStampSwapMode = 'native';
 %ntpStampSwapMode = 'swap';
+ntpStampSwapMode = 'network';
 
 %quick little code to verify byte order. 
 typecast(uint32([1]),'uint8')
@@ -150,7 +151,7 @@ else
                     NSRECORDING = 0;
                     % Use 10 seconds read timeout:
                     pnet(NSIDENTIFIER, 'setreadtimeout', 10);
-                    send(NSIDENTIFIER,'QNTEL');
+                    send(NSIDENTIFIER,'QMAC-');
                     rep = receive(NSIDENTIFIER,1);
                     switch char(rep)
                         case 'F'
