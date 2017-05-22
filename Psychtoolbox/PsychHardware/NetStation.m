@@ -102,8 +102,15 @@ DefaultSynchLimit = 2.5;  % The accuracy of synchronization in milliseconds
 
 %Switch for implementing debug code.
 %Set to true if no netstation is connected.
-noNetstationAvailable = true;
+noNetstationAvailable = false;
 netstationAvailable   = ~noNetstationAvailable; %Cause double negatives annoy me.
+
+%This variable is used to test the endianness. 
+ntpStampSwapMode = 'native';
+%ntpStampSwapMode = 'swap';
+
+%quick little code to verify byte order. 
+typecast(uint32([1]),'uint8')
 
 %Debug code
 if noNetstationAvailable
@@ -243,9 +250,12 @@ else
                     ptbNtpTimestamp = ptbTimeToNtpTimestamp(ptbRefTime);
                     %Don't understand this but for some reason the EGI
                     %reference code sends the seconds 4 bytes first.
-                    ptbNtpTimestamp = [ptbNtpTimestamp(2) ptbNtpTimestamp(1)];
-                    pnet(NSIDENTIFIER,'write', ptbNtpTimestamp);
+                    ptbNtpTimestamp = [ptbNtpTimestamp(1) ptbNtpTimestamp(2)];
+                    pnet(NSIDENTIFIER,'write', ptbNtpTimestamp, ntpStampSwapMode);
                     
+                    WaitSecs(1); %Let's wait a second and print what EGI sent. 
+                    printReceiveBuffer(NSIDENTIFIER);
+                                        
                     
                     rawDataString = dec2hex(ptbNtpTimestamp);
                     disp('Raw time stamp bytes being sent to EGI:')
@@ -260,12 +270,12 @@ else
        
                 %For debugging let's print what EGI gave us.
                 rawDataString = dec2hex(ntpTimestamp);
-                disp('Raw NETSTATION NTP timestamp bytes:')
+                disp('Raw FROM NETSTATION NTP timestamp bytes:')
                 disp(rawDataString)
 
                 %The first 32 bits is the seconds since 1900
                 netstationSyncEpochSeconds = ntpTimestamp(1);
-
+                
                 %THe next 32 bits is fractions of a second
                 %With one tick equal to 2^-32 seconds.
                 %We want to convert this to a more convenient number.
@@ -377,13 +387,13 @@ else
                     event = [char(varargin{2}) '    '];
                 end
 
-                if nargin < 3
-                    start = [];
+                if nargin < 3 || isempty(varargin{3})
+                    start = GetSecs();
                 else
                     start = varargin{3};
                 end
-
-                % Are Psychtoolbox client computer and NetStation host computer NTP synchronized?
+                
+                 % Are Psychtoolbox client computer and NetStation host computer NTP synchronized?
                 if NTPSYNCED
                     % Yes: Translate GetSecs timestamp into PTB NTP synchronized time via local clock-sync,
                     % then by subtracting SYNCHEPOCH, translate that into time delta since EGI's NTP baseline
@@ -421,32 +431,43 @@ else
                     duration = .001;
                 end
 
+                %IF there's only a key and no value return
+                % error message
+                if ( nargin>4 && mod(nargin,2))
+                    status = 8;
+                    error=nserr(status);
+                    return
+                end
+                
                 if nargin > 4
                     keyn = floor((nargin - 4) / 2);
-                    keylength = 0;
-                    realkeyn = 0;
-                    for k = 1:keyn
-                        len = keycodedata(varargin{k*2+4});
-                        if len > 0
-                            keylength = keylength + len + 10;
-                            realkeyn = realkeyn + 1;
-                        end
-                    end
-
-                    send(NSIDENTIFIER,'D',uint16(15+keylength),int32(start*1000),uint32(duration*1000),event(1:4),int16(0),uint8(realkeyn));
-
-                    for k = 1 : keyn
-                        id = [char(varargin{(k-1)*2+5}) '    '];
-                        [len, code, val] = keycodedata(varargin{k*2+4});
-                        if len > 0
-                            send(NSIDENTIFIER,id(1:4),code,uint16(len),val);
-                        end
-                    end
-                    if strcmpi(varargin{1},'event')
-                        rep = receive(NSIDENTIFIER,1);
-                    end
-                    status=0;
+                else
+                    keyn = 0;
                 end
+                
+                keylength = 0;
+                realkeyn = 0;
+                for k = 1:keyn
+                    len = keycodedata(varargin{k*2+4});
+                    if len > 0
+                        keylength = keylength + len + 10;
+                        realkeyn = realkeyn + 1;
+                    end
+                end
+                
+                send(NSIDENTIFIER,'D',uint16(15+keylength),int32(start*1000),uint32(duration*1000),event(1:4),int16(0),uint8(realkeyn));
+                
+                for k = 1 : keyn
+                    id = [char(varargin{(k-1)*2+5}) '    '];
+                    [len, code, val] = keycodedata(varargin{k*2+4});
+                    if len > 0
+                        send(NSIDENTIFIER,id(1:4),code,uint16(len),val);
+                    end
+                end
+                if strcmpi(varargin{1},'event')
+                    rep = receive(NSIDENTIFIER,1);
+                end
+                status=0;
             end
         case 'flushreadbuffer'
             data='1';
@@ -479,13 +500,42 @@ function rep=receive(con,len)
     rep=pnet(con,'read',len,'char');
 end
 
+
+function [] = printReceiveBuffer(con)
+   
+    readBufData = [];
+    outputString = '';
+    availableBytes = 0;
+    while length(readBufData)==availableBytes
+        
+        outputString = dec2hex(readBufData,2);
+        availableBytes = availableBytes+1;
+        readBufData=pnet(con,'read',availableBytes,'uint8','network','view','noblock');
+        
+        %a quick escape hatch.
+        if availableBytes > 200
+            break;
+        end
+        
+    end
+   availableBytes = availableBytes-1;
+   outputString(:,3) = ' ';
+   string = sprintf('%d bytes in read buffer with contents: %s',availableBytes,outputString');
+   disp(string)
+ 
+end
+
 % Receives 8 byte ntp timestamp from EGI system.
 function ntpTimestamp=receiveNtpTimestamp(con)
     if noNetstationAvailable
         ntpTimestamp(1) = 1494145042+2208988800;
         ntpTimestamp(2) = 0;
     else
-        ntpTimestamp=double(pnet(con,'read',2,'uint32'));
+        %Seems like theres also a status byte in the response
+        statByte = pnet(con,'read',1,'char')
+        ntpTimestamp=double(pnet(con,'read',2,'uint32',ntpStampSwapMode));
+        
+        
         if isempty(ntpTimestamp)
             % Timed out:
             error('NTP timestamp receive timed out!');
