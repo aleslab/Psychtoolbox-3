@@ -226,29 +226,32 @@ else
                 if netstationAvailable
                     %Tell netstation to get ready for synchronization.
                     send(NSIDENTIFIER,'A');
-                    receive(NSIDENTIFIER,1);
+                    resp = receive(NSIDENTIFIER,1);
+                    
+                    if char(resp) ~= 'Z'
+                        status = 4;
+                        warning('Attention command reports failure!');
+                    end
+                    
                     %get the timebase from the netstation.
                     %'S' also requires sending current timebase to the
                     %netstation.
                     send(NSIDENTIFIER,'S');
+                    
                     %From the EGI reference client The ntp sync command
                     %excepts an 8 byte timestamp after the 'S'
                     ptbNtpTimestamp = ptbTimeToNtpTimestamp(ptbRefTime);
                     %Don't understand this but for some reason the EGI
                     %reference code sends the seconds 4 bytes first.
                     ptbNtpTimestamp = [ptbNtpTimestamp(2) ptbNtpTimestamp(1)];
-                    pnet(con,'write', ptbNtpTimestamp);
+                    pnet(NSIDENTIFIER,'write', ptbNtpTimestamp);
                     
                     
                     rawDataString = dec2hex(ptbNtpTimestamp);
                     disp('Raw time stamp bytes being sent to EGI:')
                     disp(rawDataString)
                     
-%                     rep = receive(NSIDENTIFIER,1);
-%                     if char(rep) ~= 'Z'
-%                         status = 4;
-%                         warning('NTP query reports failure!');
-%                     end
+
                 end
 
                 % Get current time in EGI's NTP adjusted timebase (seconds since 1.1.1900):
