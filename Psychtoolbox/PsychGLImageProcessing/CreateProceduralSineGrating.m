@@ -59,12 +59,11 @@ function [gratingid, gratingrect] = CreateProceduralSineGrating(windowPtr, width
 % 08/09/2010 Add support for optional circular aperture. (MK)
 % 09/03/2010 Add 'contrastPreMultiplicator' as suggested by Xiangrui Li (MK).
 
+debuglevel = 1;
+
 % Global GL struct: Will be initialized in the LoadGLSLProgramFromFiles
 % below:
 global GL;
-
-% Make sure we have support for shaders, abort otherwise:
-AssertGLSL;
 
 if nargin < 3 || isempty(windowPtr) || isempty(width) || isempty(height)
     error('You must provide "windowPtr", "width" and "height"!');
@@ -87,12 +86,18 @@ if nargin < 6 || isempty(contrastPreMultiplicator)
     contrastPreMultiplicator = 1.0;
 end
 
+% Switch to windowPtr OpenGL context:
+Screen('GetWindowInfo', windowPtr);
+
+% Make sure we have support for shaders, abort otherwise:
+AssertGLSL;
+
 if isinf(radius)
     % Load standard grating shader:
-    gratingShader = LoadGLSLProgramFromFiles('BasicSineGratingShader', 1);
+    gratingShader = LoadGLSLProgramFromFiles('BasicSineGratingShader', debuglevel);
 else
     % Load grating shader with circular aperture support:
-    gratingShader = LoadGLSLProgramFromFiles({'BasicSineGratingShader.vert.txt', 'ApertureSineGratingShader.frag.txt'}, 1);
+    gratingShader = LoadGLSLProgramFromFiles({'BasicSineGratingShader.vert.txt', 'ApertureSineGratingShader.frag.txt'}, debuglevel);
 end
 
 % Setup shader:

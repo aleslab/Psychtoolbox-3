@@ -82,6 +82,7 @@ NVSTUSB_INVERT_EYES_PROC Nvstusb_invert_eyes_proc = NULL;
 static void* nvstusb_plugin = NULL;
 static struct nvstusb_context* nvstusb_goggles = NULL;
 #endif
+static double nvsttriggerdelay = 0;
 
 #if PSYCH_SYSTEM != PSYCH_WINDOWS
 #include "ptbstartlogo.h"
@@ -534,12 +535,7 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
                 !PsychGetGPUSpecs(screenSettings->screenNumber, &gpuMaintype, &gpuMinortype, NULL, NULL) ||
                 (gpuMaintype != kPsychRadeon) || (gpuMinortype > 0xffff) || (PsychGetScreenDepthValue(screenSettings->screenNumber) != 24)) {
                 printf("\nPTB-ERROR: Your script requested a %i bpp, %i bpc framebuffer, but i can't provide this for you, because\n", (*windowRecord)->depth, (*windowRecord)->depth / 3);
-                if (!PsychOSIsKernelDriverAvailable(screenSettings->screenNumber)) {
-                    printf("PTB-ERROR: Linux low-level MMIO access by Psychtoolbox is disabled or not permitted on your system in this session.\n");
-                    printf("PTB-ERROR: On Linux you must either configure your system by executing the script 'PsychLinuxConfiguration' once,\n");
-                    printf("PTB-ERROR: or start Octave or Matlab as root, ie. system administrator or via sudo command for this to work.\n\n");
-                }
-                else if ((gpuMaintype != kPsychRadeon) || (gpuMinortype > 0xffff)) {
+                if ((gpuMaintype != kPsychRadeon) || (gpuMinortype > 0xffff)) {
                     printf("PTB-ERROR: this functionality is not supported on your model of graphics card. Only AMD/ATI GPU's of the\n");
                     printf("PTB-ERROR: Radeon X1000 series, and Radeon HD-2000 series and later models, and corresponding FireGL/FirePro\n");
                     printf("PTB-ERROR: cards are supported. This covers basically all AMD graphics cards since about the year 2007.\n");
@@ -547,6 +543,11 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
                     printf("PTB-ERROR: for 10 bpc framebuffer support by specifying a 'DefaultDepth' setting of 30 bit in the xorg.conf file.\n");
                     printf("PTB-ERROR: The latest Intel graphics cards may be able to achieve 10 bpc with 'DefaultDepth' 30 setting if your\n");
                     printf("PTB-ERROR: graphics driver is recent enough, however this hasn't been actively tested on Intel cards so far.\n\n");
+                }
+                else if (!PsychOSIsKernelDriverAvailable(screenSettings->screenNumber)) {
+                    printf("PTB-ERROR: Linux low-level MMIO access by Psychtoolbox is disabled or not permitted on your system in this session.\n");
+                    printf("PTB-ERROR: On Linux you must either configure your system by executing the script 'PsychLinuxConfiguration' once,\n");
+                    printf("PTB-ERROR: or start Octave or Matlab as root, ie. system administrator or via sudo command for this to work.\n\n");
                 }
                 else if (PsychGetScreenDepthValue(screenSettings->screenNumber) != 24) {
                     printf("PTB-ERROR: your display is not set to 24 bit 'DefaultDepth' color depth, but to %i bit color depth in xorg.conf.\n\n",
@@ -639,7 +640,7 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
             if (PsychPrefStateGet_Verbosity() > 2) printf("PTB-INFO: Floating point precision framebuffer enabled.\n");
         }
         else {
-            if (PsychPrefStateGet_Verbosity() > 2) printf("PTB-INFO: Fixed point precision integer framebuffer enabled.\n");
+            if (PsychPrefStateGet_Verbosity() > 3) printf("PTB-INFO: Fixed point precision integer framebuffer enabled.\n");
         }
 
         // Query and show bpc for all channels:
@@ -947,7 +948,7 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
         if (multidisplay) {
             printf("\n\nPTB-INFO: You are using a multi-display setup (%i active displays):\n", totaldisplaycount);
             printf("PTB-INFO: Please read 'help MultiDisplaySetups' for specific information on the Do's, Dont's,\n");
-            printf("PTB-INFO: and possible causes of trouble and how to diagnose and resolve them.");
+            printf("PTB-INFO: and possible causes of trouble and how to diagnose and resolve them.\n\n");
         }
     }
 #endif
@@ -2166,6 +2167,10 @@ void PsychSetupShutterGoggles(PsychWindowRecordType *windowRecord, psych_bool do
                 Nvstusb_get_keys_proc = dlsym(nvstusb_plugin, "nvstusb_get_keys");
                 Nvstusb_invert_eyes_proc = dlsym(nvstusb_plugin, "nvstusb_invert_eyes");
 
+                nvsttriggerdelay = 0;
+                if (getenv("PTB_NVISION3D_DELAY"))
+                    nvsttriggerdelay = atof(getenv("PTB_NVISION3D_DELAY"));
+
                 // Successfully linked?
                 if (!Nvstusb_init_proc || !Nvstusb_deinit_proc || !Nvstusb_set_rate_proc || !Nvstusb_swap_proc || !Nvstusb_get_keys_proc || !Nvstusb_invert_eyes_proc) {
                     if (PsychPrefStateGet_Verbosity() > 2)
@@ -2269,15 +2274,30 @@ void PsychSetupShutterGoggles(PsychWindowRecordType *windowRecord, psych_bool do
 void PsychTriggerShutterGoggles(PsychWindowRecordType *windowRecord, int viewid)
 {
     static int oldviewid = -1;
+    double dT;
+
+    // Delay trigger emission if requested:
+    if (nvsttriggerdelay > 0) {
+        PsychWaitUntilSeconds(windowRecord->time_at_last_vbl + nvsttriggerdelay);
+        // Delayed triggering only makes sense if we want to trigger for the other
+        // eye - the one that will present at next refresh, not the one that is
+        // currently presenting. Therefore switch left-right eye trigger:
+        viewid = 1 - viewid;
+    }
+
+    PsychGetAdjustedPrecisionTimerSeconds(&dT);
+    dT = 1000 * (dT - windowRecord->time_at_last_vbl);
 
     #ifdef PTB_USE_NVSTUSB
         // Emit shutter trigger if frameSeqStereoActive and NVideo NVision driver active:
         if (nvstusb_plugin && nvstusb_goggles && (windowRecord->stereomode == kPsychFrameSequentialStereo)) {
             Nvstusb_swap_proc(nvstusb_goggles, ((viewid == 0) ? nvstusb_left : nvstusb_right), NULL);
-            if (PsychPrefStateGet_Verbosity() > 9) printf("PTB-DEBUG: PsychTriggerShutterGoggles: Triggering for viewid %i.\n", viewid);
+            if ((PsychPrefStateGet_Verbosity() > 9) || (nvsttriggerdelay < 0))
+                printf("PTB-DEBUG: PsychTriggerShutterGoggles: Triggering for viewid %i, dT since vblank in msecs: %f\n", viewid, dT);
         }
         else {
-            if (PsychPrefStateGet_Verbosity() > 10) printf("PTB-DEBUG: PsychTriggerShutterGoggles: No-Op call for viewid %i.\n", viewid);
+            if ((PsychPrefStateGet_Verbosity() > 9) || (nvsttriggerdelay < 0))
+                printf("PTB-DEBUG: PsychTriggerShutterGoggles: No-Op call for viewid %i, dT since vblank in msecs: %f\n", viewid, dT);
         }
     #endif
 
@@ -4083,7 +4103,7 @@ double PsychFlipWindowBuffers(PsychWindowRecordType *windowRecord, int multiflip
                             printf("PTB-INFO: Will use OS-Builtin timestamping mechanism solely for further timestamping.\n");
                         }
                         else if ((PSYCH_SYSTEM == PSYCH_OSX) && (vbltimestampmode == 1)) {
-                            printf("PTB-ERROR: As this is MacOS/X, i'll switch to a (potentially slightly less accurate) mechanism based on vertical blank interrupts...\n");
+                            printf("PTB-ERROR: As this is macOS, i'll switch to a likely equally broken mechanism based on CoreVideo timestamps. But hope dies last...\n");
                         }
                         else {
                             printf("PTB-ERROR: Timestamps returned by Flip will be correct, but less robust and accurate than they would be with working beamposition queries.\n");
@@ -4191,20 +4211,21 @@ double PsychFlipWindowBuffers(PsychWindowRecordType *windowRecord, int multiflip
                         // the buffers swap as soon as swappable and requested, instead of only within VBL:
                         printf("PTB-ERROR: Synchronization of stimulus onset (buffer swap) to the vertical blank interval VBL is not working properly.\n");
                         printf("PTB-ERROR: Please run the script PerceptualVBLSyncTest to check this. With non-working sync to VBL, all stimulus timing\n");
-                        printf("PTB-ERROR: becomes quite futile. Also read 'help SyncTrouble' !\n");
+                        printf("PTB-ERROR: becomes quite futile. Equally likely and serious is lack of sync between swap completion and PTB. Read 'help SyncTrouble'!\n");
                         printf("PTB-ERROR: For the remainder of this session, i've switched to kernel based timestamping as a backup method for the\n");
                         printf("PTB-ERROR: less likely case that beamposition timestamping in your system is broken. However, this method seems to\n");
-                        printf("PTB-ERROR: confirm the hypothesis of broken sync of stimulus onset to VBL.\n\n");
+                        printf("PTB-ERROR: confirm the hypothesis of broken sync of stimulus onset to VBL, or of swap completion signalling to swap completion.\n\n");
                     }
                     else {
                         // VBL IRQ timestamping doesn't support VBL sync failure, so it might be a problem with beamposition timestamping...
                         printf("PTB-ERROR: Something may be broken in your systems beamposition timestamping. Read 'help SyncTrouble' !\n\n");
                         printf("PTB-ERROR: For the remainder of this session, i've switched to kernel based timestamping as a backup method.\n");
-                        printf("PTB-ERROR: This method is slightly less accurate and higher overhead but should be similarly robust.\n");
+                        printf("PTB-ERROR: On Linux, this method is slightly less accurate and higher overhead but should be similarly robust,\n");
+                        printf("PTB-ERROR: On macOS, this method is usually also badly broken and unreliable, but hope dies last...\n");
                         printf("PTB-ERROR: A less likely cause could be that Synchronization of stimulus onset (buffer swap) to the\n");
-                        printf("PTB-ERROR: vertical blank interval VBL is not working properly.\n");
-                        printf("PTB-ERROR: Please run the script PerceptualVBLSyncTest to check this. With non-working sync to VBL, all stimulus timing\n");
-                        printf("PTB-ERROR: becomes quite futile.\n");
+                        printf("PTB-ERROR: vertical blank interval VBL, or of PTB to swap completion, is not working properly.\n");
+                        printf("PTB-ERROR: Please run the script PerceptualVBLSyncTest to check this. With any of these problems,\n");
+                        printf("PTB-ERROR: all stimulus timing is futile. Also run OSXCompositorIdiocyTest on macOS. \n");
                     }
                 }
 
@@ -4237,12 +4258,12 @@ double PsychFlipWindowBuffers(PsychWindowRecordType *windowRecord, int multiflip
                     if (verbosity > -1) {
                         printf("PTB-ERROR: I have enabled additional cross checking between beamposition based and kernel-level based timestamping.\n");
                         printf("PTB-ERROR: This should allow to get a better idea of what's going wrong if successive invocations of Screen('Flip');\n");
-                        printf("PTB-ERROR: fail to deliver proper timestamps as well. It may even fix the problem if the culprit would be a bug in \n");
-                        printf("PTB-ERROR: beamposition based high precision timestamping. We will see...\n\n");
+                        printf("PTB-ERROR: fail to deliver proper timestamps as well. It may even fix the problem if the unlikely culprit would be\n");
+                        printf("PTB-ERROR: a bug in beamposition based high precision timestamping. We will see...\n\n");
                         printf("PTB-ERROR: An equally likely cause would be that Synchronization of stimulus onset (buffer swap) to the\n");
-                        printf("PTB-ERROR: vertical blank interval VBL is not working properly.\n");
+                        printf("PTB-ERROR: vertical blank interval VBL, or of swap completion to completion signalling is not working properly.\n");
                         printf("PTB-ERROR: Please run the script PerceptualVBLSyncTest to check this. With non-working sync to VBL, all stimulus timing\n");
-                        printf("PTB-ERROR: becomes quite futile. Also read 'help SyncTrouble' !\n");
+                        printf("PTB-ERROR: is futile. Also run OSXCompositorIdiocyTest on macOS. Also read 'help SyncTrouble' !\n");
                     }
                 }
                 else {
@@ -4255,13 +4276,13 @@ double PsychFlipWindowBuffers(PsychWindowRecordType *windowRecord, int multiflip
                     vbltimestampmode = -1;
 
                     if (verbosity > -1) {
-                        printf("PTB-ERROR: This error can be due to either of the following causes (No way to discriminate):\n");
-                        printf("PTB-ERROR: Either something is broken in your systems beamposition timestamping. I've disabled high precision\n");
-                        printf("PTB-ERROR: timestamping for now. Returned timestamps will be less robust and accurate, but if that was the culprit it should be fixed.\n\n");
-                        printf("PTB-ERROR: An equally likely cause would be that Synchronization of stimulus onset (buffer swap) to the\n");
-                        printf("PTB-ERROR: vertical blank interval VBL is not working properly.\n");
+                        printf("PTB-ERROR: This error can be due to either of the following causes:\n");
+                        printf("PTB-ERROR: Very unlikely: Something is broken in your systems beamposition timestamping. I've disabled high precision\n");
+                        printf("PTB-ERROR: timestamping for now. Returned timestamps will be less robust and accurate.\n\n");
+                        printf("PTB-ERROR: The most likely cause would be that Synchronization of stimulus onset (buffer swap) to the\n");
+                        printf("PTB-ERROR: vertical blank interval VBL is not working properly, or swap completion signalling to PTB is broken.\n");
                         printf("PTB-ERROR: Please run the script PerceptualVBLSyncTest to check this. With non-working sync to VBL, all stimulus timing\n");
-                        printf("PTB-ERROR: becomes quite futile. Also read 'help SyncTrouble' !\n");
+                        printf("PTB-ERROR: is futile. Also run OSXCompositorIdiocyTest on macOS. Also read 'help SyncTrouble' !\n");
                     }
                 }
             }
@@ -4299,13 +4320,13 @@ double PsychFlipWindowBuffers(PsychWindowRecordType *windowRecord, int multiflip
                     if (verbosity > -1) {
                         printf("\n\nPTB-ERROR: Screen('Flip'); kernel-level timestamping computed bogus values!!!\n");
                         printf("PTB-ERROR: vbltimestampquery_retrycount = %i, preflip_vbltimestamp=postflip= %f, time_at_swaprequest= %f\n", (int) vbltimestampquery_retrycount, preflip_vbltimestamp, time_at_swaprequest);
-                        printf("PTB-ERROR: This error can be due to either of the following causes (No simple way to discriminate):\n");
+                        printf("PTB-ERROR: This error can be due to either of the following causes:\n");
                         printf("PTB-ERROR: Either something is broken in your systems VBL-IRQ timestamping. I've disabled high precision\n");
                         printf("PTB-ERROR: timestamping for now. Returned timestamps will be less robust and accurate, but at least ok, if that was the culprit.\n\n");
-                        printf("PTB-ERROR: An equally likely cause would be that Synchronization of stimulus onset (buffer swap) to the\n");
-                        printf("PTB-ERROR: vertical blank interval VBL is not working properly.\n");
+                        printf("PTB-ERROR: The by far most likely cause would be that Synchronization of stimulus onset (buffer swap) to the\n");
+                        printf("PTB-ERROR: vertical blank interval VBL or of swap completion to completion signalling is not working properly.\n");
                         printf("PTB-ERROR: Please run the script PerceptualVBLSyncTest to check this. With non-working sync to VBL, all stimulus timing\n");
-                        printf("PTB-ERROR: becomes quite futile. Also read 'help SyncTrouble' !\n\n\n");
+                        printf("PTB-ERROR: is futile. Also run OSXCompositorIdiocyTest on macOS. Also read 'help SyncTrouble' !\n\n\n");
                     }
 
                     PsychPrefStateSet_VBLTimestampingMode(-1);
@@ -4907,15 +4928,29 @@ double PsychGetMonitorRefreshInterval(PsychWindowRecordType *windowRecord, int* 
             free(samples);
             samples = NULL;
 
-            // Summary of pageflip only makes sense if !useOpenML, so actual accounting was done:
-            if (!useOpenML && (PsychIsGPUPageflipUsed(windowRecord) >= 0)) {
-                printf("PTB-DEBUG: %i out of %i samples confirm use of GPU pageflipping for the swap.\n", pflip_count, i);
-                if (pflip_count >= i - 1) printf("PTB-DEBUG: --> Good, one neccessary condition for defined visual timing is satisfied.\n");
-            }
-
             printf("PTB-DEBUG: End of calibration data for this run...\n\n");
         }
 
+        // Summary of pageflip only makes sense if !useOpenML, so actual accounting was done:
+        if (!useOpenML && (PsychIsGPUPageflipUsed(windowRecord) >= 0)) {
+            if (PsychPrefStateGet_Verbosity() > 4)
+                printf("PTB-DEBUG: %i out of %i samples confirm use of GPU pageflipping for the swap during refresh calibration.\n", pflip_count, i);
+
+            // Good result?
+            if (pflip_count >= i - 1) {
+                if (PsychPrefStateGet_Verbosity() > 4)
+                    printf("PTB-DEBUG: --> Good, one neccessary condition for defined visual timing is satisfied.\n");
+            }
+            else if (PsychPrefStateGet_Verbosity() > 1) {
+                // No reliable pageflipping or pageflipping at all. This is pretty much game over for reliable
+                // visual timing or timestamping:
+                printf("PTB-WARNING: Pageflipping wasn't used %s during refresh calibration. Visual presentation timing on your system\n",
+                       (pflip_count > 0) ? "consistently" : "at all");
+                printf("PTB-WARNING: is broken on your system and all followup tests and workarounds will likely fail as well.\n");
+                printf("PTB-WARNING: On a Apple macOS system you probably don't need to even bother asking anybody for help. Just\n");
+                printf("PTB-WARNING: upgrade to Linux if you care about trustworthy visual timing and stimulation.\n\n");
+            }
+        }
     } // End of IFI measurement code.
     else {
         // No measurements taken...
@@ -6266,12 +6301,24 @@ void PsychSetupView(PsychWindowRecordType *windowRecord, psych_bool useRawFrameb
 
     // Setup projection matrix for a proper orthonormal projection for this framebuffer or window:
     glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    if (!PsychIsGLES(windowRecord)) {
-        gluOrtho2D(rect[kPsychLeft], rect[kPsychRight], rect[kPsychBottom], rect[kPsychTop]);
+    if ((windowRecord->proj == NULL) || useRawFramebufferSize) {
+        // Default case: No override projection matrix assigned, or use of it not wanted.
+        // Setup standard ortho transform:
+        glLoadIdentity();
+        if (!PsychIsGLES(windowRecord)) {
+            gluOrtho2D(rect[kPsychLeft], rect[kPsychRight], rect[kPsychBottom], rect[kPsychTop]);
+        }
+        else {
+            glOrthofOES((float) rect[kPsychLeft], (float) rect[kPsychRight], (float) rect[kPsychBottom], (float) rect[kPsychTop], (float) -1, (float) 1);
+        }
     }
     else {
-        glOrthofOES((float) rect[kPsychLeft], (float) rect[kPsychRight], (float) rect[kPsychBottom], (float) rect[kPsychTop], (float) -1, (float) 1);
+        // Override projection matrix/matrices assigned. Select proper one for given
+        // mono/stereo view:
+        if (windowRecord->stereomode > 0 && windowRecord->stereodrawbuffer == 1)
+            glLoadMatrixd(&(windowRecord->proj[16]));
+        else
+            glLoadMatrixd(&(windowRecord->proj[0]));
     }
 
     // Switch back to modelview matrix, but leave it unaltered:
@@ -6602,7 +6649,7 @@ void PsychDetectAndAssignGfxCapabilities(PsychWindowRecordType *windowRecord)
 
         // Prime renderoffload only works with proper timing and quality if DRI3/Present
         // is used for our onscreen window:
-        if (!(windowRecord->specialflags & kPsychIsDRI3Window) && (PsychPrefStateGet_Verbosity() > 1)) {
+        if ((windowRecord->specialflags & kPsychIsX11Window) && !(windowRecord->specialflags & kPsychIsDRI3Window) && (PsychPrefStateGet_Verbosity() > 1)) {
             printf("PTB-WARNING: Hybrid graphics DRI PRIME muxless render offload requires the use of DRI3/Present for rendering,\n");
             printf("PTB-WARNING: but this is not enabled on your setup. Use XOrgConfCreator to setup your system accordingly.\n");
             printf("PTB-WARNING: Without this, your visual stimulation will suffer severe timing and display artifacts.\n\n");
@@ -7102,10 +7149,13 @@ void PsychDetectAndAssignGfxCapabilities(PsychWindowRecordType *windowRecord)
         printf("OML_sync_control indicators: glXGetSyncValuesOML=%p , glXWaitForMscOML=%p, glXWaitForSbcOML=%p, glXSwapBuffersMscOML=%p\n",
                 glXGetSyncValuesOML, glXWaitForMscOML, glXWaitForSbcOML, glXSwapBuffersMscOML);
         printf("OML_sync_control indicators: glxewIsSupported() says %i.\n", (int) glxewIsSupported("GLX_OML_sync_control"));
+        printf("OML_sync_control indicators: glXQueryExtensionsString() says %i.\n",
+               !!((long) strstr(glXQueryExtensionsString(windowRecord->targetSpecific.deviceContext, PsychGetXScreenIdForScreen(windowRecord->screenNumber)), "GLX_OML_sync_control")));
     }
 
     // Check if OpenML extensions for precisely scheduled stimulus onset and onset timestamping are supported:
-    if (glxewIsSupported("GLX_OML_sync_control") && (glXGetSyncValuesOML && glXWaitForMscOML && glXWaitForSbcOML && glXSwapBuffersMscOML)) {
+    if (glxewIsSupported("GLX_OML_sync_control") && (glXGetSyncValuesOML && glXWaitForMscOML && glXWaitForSbcOML && glXSwapBuffersMscOML) &&
+        strstr(glXQueryExtensionsString(windowRecord->targetSpecific.deviceContext, PsychGetXScreenIdForScreen(windowRecord->screenNumber)), "GLX_OML_sync_control")) {
     #else
     // Disable this whole code-path if PTB_USE_WAFFLE:
     if (FALSE) {

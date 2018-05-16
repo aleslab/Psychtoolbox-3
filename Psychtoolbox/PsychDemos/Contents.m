@@ -76,6 +76,8 @@
 %    MovieDemo               - Animation without offscreen windows.
 %    MovieDemos              - Subfolder: Demos on how to use movie playback.
 %    MovingLineDemo          - Shows some horizontally moving lines to demonstrate flat panel display artifacts.
+%    MultiTouchDemo          - Shows how to get (multi-)touch input from touchscreens and touchpads.
+%    MultiTouchMinimalDemo   - Shows a more minimal example of how to get (multi-)touch input from touchscreens and touchpads.
 %    NomogramDemo            - Compute photoreceptor nomograms.
 %    OldNewRecogExp          - A full old-new recognition experiment.
 %    OpenGL4MatlabDemos      - Subfolder: Demos on how to use MOGL OpenGL functions.
@@ -83,6 +85,9 @@
 %    ProceduralGaborDemo     - Demo for fast drawing of Gabors via procedural textures.
 %    ProceduralGarboriumDemo - Same as GarboriumDemo, just with procedural gabor drawing.
 %    ProceduralNoiseDemo     - Demo for fast drawing of noise patches via procedural texturing.
+%    ProceduralSquareWaveDemo - Demo for fast drawing of square wave grating.
+%    ProceduralSmoothedApertureSineGratingDemo - Demo for fast drawing of smoothed aperture sine grating.
+%    ProceduralSmoothedDiscsDemo - Demo for fast drawing of smoothed aperture discs.
 %    PsychRTBoxDemo          - Demonstrates basic use of the RTBox reaction time button response box.
 %    RaspberryPiGPIODemo     - Show basic use of GPIO's on a RaspberryPi running Raspian GNU/Linux.
 %    ReceivingTriggerFromSerialPortDemo - Template for asynchronous trigger collection and timestamping from serial port.

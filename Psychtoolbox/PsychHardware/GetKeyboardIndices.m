@@ -25,14 +25,18 @@ function [keyboardIndices, productNames, allInfos]= GetKeyboardIndices(product, 
 %                reboots of the machine, but may not be persistent across
 %                operating system upgrades - or may not be persistent at
 %                all in case of os bugs. Your mileage may vary...
-% _________________________________________________________________________
+% WINDOWS: ________________________________________________________________
 %
+% GetKeyboardIndices can not enumerate individual keyboards. All keyboard
+% devices are treated as one unified keyboard.
+% _________________________________________________________________________
 % see also: GetGamepadIndices
 
 
 % HISTORY
-% 7/6/03    awi     Wrote it.
-% 12/8/09    mk     Add matching logic for selection of subsets of devices.
+% 7/6/03      awi Wrote it.
+% 12/8/09     mk  Add matching logic for selection of subsets of devices.
+% 10-Apr-2018 mk  Filter out devices with locationID zero on broken macOS.
 
 if nargin < 1
     product = [];
@@ -53,12 +57,12 @@ allInfos=cell(0);
 
 % Enumerate all HID devices:
 if ~IsOSX
-  % On Linux or Windows we only enumerate type 4 - slave keyboard devices. These are what we want:
-  LoadPsychHID;
-  d = PsychHID('Devices', 4);
+    % On Linux or Windows we only enumerate type 4 - slave keyboard devices. These are what we want:
+    LoadPsychHID;
+    d = PsychHID('Devices', 4);
 else
-  % On other OS'es enumerate everything and filter later:
-  d = PsychHID('Devices');
+    % On other OS'es enumerate everything and filter later:
+    d = PsychHID('Devices');
 end
 
 % Iterate through all of them:
@@ -69,12 +73,17 @@ for i =1:length(d);
         if ~isempty(product) && ~strcmpi(d(i).product, product)
             continue;
         end
-        
+
         if ~isempty(serialNumber) && ~strcmpi(d(i).serialNumber, serialNumber)
             continue;
         end
-        
+
         if ~isempty(locationID) && (d(i).locationID ~= locationID)
+            continue;
+        end
+
+        % Protect against macOS brain-damage: Filter out the touchbar gadget.
+        if IsOSX && d(i).locationID == 0
             continue;
         end
 

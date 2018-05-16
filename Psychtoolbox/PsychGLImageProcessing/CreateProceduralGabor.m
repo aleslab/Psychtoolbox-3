@@ -93,7 +93,7 @@ function [gaborid, gaborrect] = CreateProceduralGabor(windowPtr, width, height, 
 % does.
 %
 % Wikipedia's definition (better readable): http://en.wikipedia.org/wiki/Gabor_filter
-% See http://tech.groups.yahoo.com/group/psychtoolbox/message/9174 for
+% See http://groups.yahoo.com/group/psychtoolbox/message/9174 for
 % Psychtoolbox forum message 9174 with an in-dephs discussion of this
 % function.
 %
@@ -139,9 +139,6 @@ debuglevel = 1;
 % below:
 global GL;
 
-% Make sure we have support for shaders, abort otherwise:
-AssertGLSL;
-
 if nargin < 3 || isempty(windowPtr) || isempty(width) || isempty(height)
     error('You must provide "windowPtr", "width" and "height"!');
 end
@@ -178,6 +175,12 @@ if ~isnumeric(validModulationRange) || ~isreal(validModulationRange) || length(v
     validModulationRange(1) >= validModulationRange(2)
     error('The "validModulationRange" parameter must be a 2-element vector of real numbers [minval, maxval], minval < maxval!');
 end
+
+% Switch to windowPtr OpenGL context:
+Screen('GetWindowInfo', windowPtr);
+
+% Make sure we have support for shaders, abort otherwise:
+AssertGLSL;
 
 if ~nonSymmetric
     % Load standard symmetric support shader - Faster!

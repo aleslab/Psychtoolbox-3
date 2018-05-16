@@ -438,6 +438,7 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Ps
     glXGetVisualFromFBConfig = (PFNGLXGETVISUALFROMFBCONFIGPROC) glXGetProcAddressARB((const GLubyte *) "glXGetVisualFromFBConfig");
     glXCreateWindow = (PFNGLXCREATEWINDOWPROC) glXGetProcAddressARB((const GLubyte *) "glXCreateWindow");
     glXCreateNewContext = (PFNGLXCREATENEWCONTEXTPROC) glXGetProcAddressARB((const GLubyte *) "glXCreateNewContext");
+    glXCreateContextAttribsARB = (PFNGLXCREATECONTEXTATTRIBSARBPROC) glXGetProcAddressARB((const GLubyte *) "glXCreateContextAttribsARB");
     glXDestroyWindow = (PFNGLXDESTROYWINDOWPROC) glXGetProcAddressARB((const GLubyte *) "glXDestroyWindow");
     glXSelectEvent = (PFNGLXSELECTEVENTPROC) glXGetProcAddressARB((const GLubyte *) "glXSelectEvent");
     glXGetSelectedEvent = (PFNGLXGETSELECTEDEVENTPROC) glXGetProcAddressARB((const GLubyte *) "glXGetSelectedEvent");
@@ -747,14 +748,14 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Ps
         for (i = 0; i < nrconfigs; i++) {
             buffdepth = 0;
             if ((Success == glXGetFBConfigAttrib(dpy, fbconfig[i], GLX_BUFFER_SIZE, &buffdepth)) && (buffdepth >= 32) &&
-                (visinfo = glXGetVisualFromFBConfig(dpy, fbconfig[i])) && (visinfo->depth >= 32)) {
+                (visinfo = glXGetVisualFromFBConfig(dpy, fbconfig[i])) && (visinfo->depth >= 30)) {
                 fbconfig[0] = fbconfig[i];
-            if (PsychPrefStateGet_Verbosity() > 3) printf("PTB-INFO: Choosing GLX framebuffer config %i for transparent window.\n", i);
-            break;
-                }
-                else if (PsychPrefStateGet_Verbosity() > 4) {
-                    printf("PTB-INFO: Trying GLX framebuffer config %i for transparent window: Depths %i bpp.\n", i, buffdepth);
-                }
+		if (PsychPrefStateGet_Verbosity() > 3) printf("PTB-INFO: Choosing GLX framebuffer config %i for transparent window.\n", i);
+		break;
+	    }
+	    else if (PsychPrefStateGet_Verbosity() > 4) {
+		printf("PTB-INFO: Trying GLX framebuffer config %i for transparent window: Depths %i bpp.\n", i, buffdepth);
+	    }
         }
     }
 
@@ -966,7 +967,15 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Ps
 
         // Create rendering context with identical visual and display as main context, share all heavyweight ressources with it:
         if (fbconfig) {
-            windowRecord->targetSpecific.glusercontextObject = glXCreateNewContext(dpy, fbconfig[0], GLX_RGBA_TYPE, windowRecord->targetSpecific.contextObject, True);
+            // Does usercode want to use OpenGL 3.1+ core profile?
+            if ((PsychPrefStateGet_3DGfx() & 4) && glXCreateContextAttribsARB) {
+                // Yes: Request GL 3.1. This will give us 3.1 with or without GL_compatibility or not,
+                // or any later core profile if the driver + hw supports it:
+                int ctx_attrib_list[] = { GLX_CONTEXT_MAJOR_VERSION_ARB, 3, GLX_CONTEXT_MINOR_VERSION_ARB, 1, None };
+                windowRecord->targetSpecific.glusercontextObject = glXCreateContextAttribsARB(dpy, fbconfig[0], windowRecord->targetSpecific.contextObject, True, ctx_attrib_list);
+            }
+            else
+                windowRecord->targetSpecific.glusercontextObject = glXCreateNewContext(dpy, fbconfig[0], GLX_RGBA_TYPE, windowRecord->targetSpecific.contextObject, True);
         } else {
             windowRecord->targetSpecific.glusercontextObject = glXCreateContext(dpy, visinfo, windowRecord->targetSpecific.contextObject, True);
         }
@@ -1404,6 +1413,7 @@ void PsychOSCloseWindow(PsychWindowRecordType *windowRecord)
     // Perform a fully synced flip with backbuffer cleared to black, to have a defined final
     // frontbuffer color for switching back to windowing system. Avoids leaving pixel trash
     // behind on some multi-x-screen setups with some drivers:
+    PsychSetupView(windowRecord, TRUE);
     glClearColor(0,0,0,1);
     glClear(GL_COLOR_BUFFER_BIT);
     PsychOSFlipWindowBuffers(windowRecord);
@@ -1837,8 +1847,8 @@ psych_int64 PsychOSGetSwapCompletionTimestamp(PsychWindowRecordType *windowRecor
             // 'ust' + 1 video refresh duration:
             PsychWaitUntilSeconds(PsychOSMonotonicToRefTime(((double) ust) / PsychGetKernelTimebaseFrequencyHz()) + windowRecord->VideoRefreshInterval - 0.001);
         } else {
-            // Yes: Swap completion can happen almost any time now. Sleep for a millisecond, then repoll:
-            PsychYieldIntervalSeconds(0.001);
+            // Yes: Swap completion can happen almost any time now. Sleep a bit, then repoll:
+            PsychYieldIntervalSeconds(0.0001);
         }
 
         // Repoll for swap completion...
@@ -2065,7 +2075,7 @@ psych_int64 PsychOSGetSwapCompletionTimestamp(PsychWindowRecordType *windowRecor
                 printf("\nPTB-WARNING: Flip for window %i didn't use pageflipping for flip. Visual presentation timing and timestamps are likely unreliable!\n", windowRecord->windowIndex);
                 printf("PTB-WARNING: Something is misconfigured on your system, otherwise pageflipping would have been used by the graphics driver for reliable timing.\n");
                 printf("PTB-WARNING: However, if you see this message only sporadically, this might be caused by onscreen popup messages a la \"You have new mail!\" or\n");
-                printf("PTB-WARNING: \"New updates are ready to install\" etc., so that would be a benign, although annoying, cause.\n");
+                printf("PTB-WARNING: \"New updates are ready to install\" etc. Being low on free system memory can cause this as well, especially on integrated graphics chips.\n");
                 printf("PTB-WARNING: Read the Linux specific section of 'help SyncTrouble' for some other common causes and fixes for this problem.\n");
             }
         }

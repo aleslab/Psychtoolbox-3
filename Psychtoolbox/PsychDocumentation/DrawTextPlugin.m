@@ -14,6 +14,14 @@
 % systems can still cause slight differences in text appearance if you don't
 % manage this though.
 %
+% Which text renderer should be used can be set via
+% Screen('Preference','TextRenderer', type), and after a first call to
+% Screen('DrawText', ...), type = Screen('Preference','TextRenderer') will
+% report which 'type' of text renderer is actually used. A 'type' of 1 means
+% that the plugin based renderer is used, a 'type' of 0 or -1 would mean the
+% use of a less high quality fallback renderer, e.g., because loading the
+% text rendering plugin failed.
+%
 % If use of the drawtext plugin renderer fails then that likely means that
 % some required 3rd party library is not installed, or of incompatible version.
 % The plugin requires a working installation of the FreeType-2 and
@@ -55,8 +63,14 @@
 % On MS-Windows with Matlab you will need to install the GStreamer multi-
 % media framework - see "help GStreamer" for installation instructions -
 % otherwise Psychtoolbox will use the old lower quality GDI text renderer
-% instead. If your version of Matlab bundles an outdated libfreetype you may
-% need to get rid of that as well, just as on OSX (see above).
+% instead.
+%
+% If your version of Matlab bundles an outdated libfreetype.dll, as may be
+% the case with at least R2015a and later, you may need to get rid of that as
+% well, just as on OSX (see above). The file to delete or rename would likely
+% be found in (e.g., for R2015b):
+% C:\Program Files\MATLAB\R2015b\bin\win64\ under a name like libfreetype.dll,
+% or a similar name containing "freetype".
 %
 % More background info about Psychtoolbox's standard text renderer:
 % =================================================================
