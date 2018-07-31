@@ -71,11 +71,15 @@ ALternatively recursively add all files in the directory:
 Example script that outputs entire PTB tree:
 cd /path/to/Psychtoolbox
 ../managementtools/PTB-wikify-into-files.py -m -o /Users/ales/git/Psychtoolbox-3-aleslab-fork.wiki *.m;
-for name in *;
+#Exclude PsychOpenGL because it has 2700+ files and overloads github wiki.
+for name in `find * -maxdepth 0 -type d -not -name PsychOpenGL`;
 do
 ../managementtools/PTB-wikify-into-files.py -rm -o /Users/ales/git/Psychtoolbox-3-aleslab-fork.wiki $name;
 done
+#Just extract documentation from the base PsychOpenGL folder
+../managementtools/PTB-wikify-into-files.py -m -o /Users/ales/git/Psychtoolbox-3-aleslab-fork.wiki PsychOpenGL/*.m*;
 
+ for name in `find * -maxdepth 0 -type d -not -name PsychOpenGL`; do  ../managementtools/PTB-wikify-into-files.py -o /Users/ales/git/Psychtoolbox-3-aleslab-fork.wiki -rm $name; done
 IMPORTANT!!:
   Always change your working directory to the root of the
   tree before running the script, e.g.,
@@ -211,7 +215,12 @@ def beackern(mkstring):
             + r'\bxyYToXYZ\b|' \
             + r'\blog10nw\b|' \
             + r'\bPreference\b)'
-    mkstring = re.sub(match,r'[[\1]]',mkstring)
+
+    if outputFormat == "markdown":
+        mkstring = re.sub(match,r'[\1](\1)',mkstring)
+    elif outputFormat == "mediawiki":
+        mkstring = re.sub(match,r'[[\1|\1]]',mkstring)
+
 
     #Add links for any word using UpperCamelCase: e.g. PsychHID
     #BUT does NOT match any string stating wiht ' e.g. 'OpenWindow'
@@ -222,7 +231,12 @@ def beackern(mkstring):
     UpperCamelMatch = r'(?<!\')(?:\(|\b)[A-Z]([A-Z0-9]*[a-z][a-z0-9]*[A-Z]|[a-z0-9]*[A-Z][A-Z0-9]*[a-z])[A-Za-z0-9]*(?:\)|\b)(?!\')'
     #r'(?<!\')[A-Z]([A-Z0-9]*[a-z][a-z0-9]*[A-Z]|[a-z0-9]*[A-Z][A-Z0-9]*[a-z])[A-Za-z0-9]*'
 
-    mkstring = re.sub(UpperCamelMatch,r'[[\g<0>]]',mkstring)
+    if outputFormat == "markdown":
+        mkstring = re.sub(UpperCamelMatch,r'[\g<0>](\g<0>)',mkstring)
+    elif outputFormat == "mediawiki":
+        mkstring = re.sub(UpperCamelMatch,r'[[\g<0>|\g<0>]]',mkstring)
+
+
 
     # purge useless help lines
     mkstring = re.sub(r'(?m)^.*triple-click me & hit enter.*$\n','',mkstring)
@@ -258,9 +272,6 @@ def writeFiles(outputDir,files):
         path =   os.path.normpath(os.path.join(root,head))
         funcname, ext = os.path.splitext(basename)
 
-        print(name)
-        print(absPath)
-        print(basename)
         cattext = ''
 
         mexname = os.path.join(absPath,funcname+_mexext)
@@ -456,9 +467,25 @@ def mexhelpextract(outputDir,mexnames):
                     + body \
                     + '\n\n'
 
-
+            print(seealso)
             if seealso:
-                docstring = docstring + '<<=====See also:=====\n' + seealso + '<<'
+
+                #Add links for any word using UpperCamelCase: e.g. PsychHID
+                #BUT does NOT match any string stating wiht ' e.g. 'OpenWindow'
+                #Because we don't want subfunctions/strings to trigger page links
+                #WARNING:
+                #This is a pretty crazy regex to .  Cobled together from lots of
+                #web searches and tests.  Probably not very robust but gets most of the job done.
+                UpperCamelMatch = r'(?<!\')(?:\(|\b)[A-Z]([A-Z0-9]*[a-z][a-z0-9]*[A-Z]|[a-z0-9]*[A-Z][A-Z0-9]*[a-z])[A-Za-z0-9]*(?:\)|\b)(?!\')'
+                #r'(?<!\')[A-Z]([A-Z0-9]*[a-z][a-z0-9]*[A-Z]|[a-z0-9]*[A-Z][A-Z0-9]*[a-z])[A-Za-z0-9]*'
+
+                if outputFormat == "markdown":
+                    seealso = re.sub(UpperCamelMatch,r'[\g<0>]('+mexname + '-\g<0>)',seealso)
+                elif outputFormat == "mediawiki":
+                    seealso = re.sub(UpperCamelMatch,r'[['+mexname + '-\g<0>|\g<0>]]',seealso)
+
+
+                docstring = docstring + '###See also:\n' + seealso
 
             text =  headline \
                     + breadcrumb \
